@@ -160,13 +160,23 @@ GITHUB_REPO_URL = "https://github.com/630StarFortune/Mojian"
 
 # --- 全局函数 ---
 def get_language():
-    """检测系统语言并返回相应的语言资源"""
+    """检测系统语言并返回相应的语言资源 (兼容未来版本)"""
     try:
-        lang_code, _ = locale.getdefaultlocale()
+        # 尝试使用推荐的、更现代的方法
+        # 在某些系统上，需要先设置为空字符串以从环境中获取默认值
+        locale.setlocale(locale.LC_CTYPE, '')
+        lang_code, _ = locale.getlocale()
         if lang_code and lang_code.lower().startswith('zh'):
             return LANGUAGES['zh']
-    except Exception:
-        pass
+    except (locale.Error, ValueError, TypeError):
+        # 如果上述方法失败，回退到旧方法
+        try:
+            lang_code, _ = locale.getdefaultlocale()
+            if lang_code and lang_code.lower().startswith('zh'):
+                return LANGUAGES['zh']
+        except Exception:
+            # 如果所有方法都失败，则默认返回英文
+            pass
     return LANGUAGES['en']
 
 L = get_language()
@@ -245,7 +255,8 @@ def ask_startup_action(parent, editor_name, save_folder):
     dialog.title(L["startup_dialog_title"])
     dialog.resizable(False, False)
     dialog.transient(parent)
-    
+    dialog.grab_set() # 确保对话框获得焦点
+
     result = "cancel"
 
     def set_result(choice):
@@ -271,6 +282,18 @@ def ask_startup_action(parent, editor_name, save_folder):
 
     about_btn = tk.Button(button_frame, text=L["startup_btn_about"], command=lambda: set_result("about"))
     about_btn.pack(side="left", expand=True, padx=5)
+
+    # --- 新增的居中逻辑 ---
+    parent.update_idletasks()
+    dialog.update_idletasks()
+    dialog_width = dialog.winfo_reqwidth()
+    dialog_height = dialog.winfo_reqheight()
+    screen_width = parent.winfo_screenwidth()
+    screen_height = parent.winfo_screenheight()
+    x = (screen_width // 2) - (dialog_width // 2)
+    y = (screen_height // 2) - (dialog_height // 2)
+    dialog.geometry(f'+{x}+{y}')
+    # --- 居中逻辑结束 ---
 
     dialog.protocol("WM_DELETE_WINDOW", lambda: set_result("cancel"))
     dialog.wait_window()
@@ -362,6 +385,7 @@ def main():
                     changelog_text = L["changelog_history"].get(L["version"], "No changelog found for this version.")
                     messagebox.showinfo(L["welcome_title"].format(version=L["version"]), L["welcome_message"].format(changelog=changelog_text), parent=root)
                     settings["last_version_run"] = L["version"]
+                    save_settings(settings) # <-- 关键修复：立刻将更新后的版本号保存到文件
                 
                 save_folder_path = settings.get("save_folder_path")
                 editor_path = settings.get("editor_path")
