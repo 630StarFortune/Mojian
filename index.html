@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>墨笺 (Mojian) - 化任意编辑器，为代码灵感之速记</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&family=Noto+Sans+SC:wght@300;400;500&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- Part 0: 核心设计变量与全局重置 --- */
+        :root {
+            --ink-black: #1A1A1A;
+            --xuan-paper-white: #F8F8F0;
+            --antique-gold: #B08D57;
+            --antique-gold-darker: #947546;
+            --vermilion-red: #C0392B;
+            --vermilion-red-darker: #A93226;
+            --soft-white: #EFEFEF;
+            --charcoal-grey: #333333;
+
+            --font-serif: 'Noto Serif SC', '思源宋体', serif;
+            --font-sans: 'Noto Sans SC', '思源黑体', sans-serif;
+            --font-mono: 'Fira Code', 'JetBrains Mono', monospace;
+
+            --transition-fast: 0.3s ease;
+            --transition-medium: 0.5s ease;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; font-size: 16px; }
+        body { background-color: var(--ink-black); color: var(--soft-white); font-family: var(--font-sans); line-height: 1.8; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; overflow-x: hidden; }
+
+        /* --- Part 1: 页面加载动画 --- */
+        .preloader { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--ink-black); display: flex; justify-content: center; align-items: center; z-index: 9999; transition: opacity 0.8s ease, visibility 0.8s; }
+        .preloader.loaded { opacity: 0; visibility: hidden; }
+        .preloader .ink-drop { width: 50px; height: 50px; background-color: var(--soft-white); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; animation: drop 1.5s ease-in-out forwards, spread 1s ease-out 1.5s forwards; }
+        @keyframes drop { 0% { transform: translateY(-200px) scale(0.8); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(0) scale(1); } }
+        @keyframes spread { 0% { transform: scale(1) rotate(0deg); border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; } 100% { transform: scale(100) rotate(360deg); opacity: 0; } }
+
+        /* --- Part 2: 布局与通用组件 --- */
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+        .section { padding: 8rem 0; position: relative; }
+        h1, h2, h3 { font-family: var(--font-serif); font-weight: 500; letter-spacing: 0.05em; }
+        h2 { font-size: 2.8rem; text-align: center; margin-bottom: 4rem; position: relative; display: inline-block; left: 50%; transform: translateX(-50%); }
+        h2::after { content: ''; display: block; width: 50%; height: 2px; background-color: var(--antique-gold); margin: 0.5rem auto 0; transform: scaleX(0); transition: transform 0.5s ease-out; }
+        .visible h2::after { transform: scaleX(1); }
+        .cta-button { display: inline-block; padding: 0.8rem 2.5rem; background-color: var(--antique-gold); color: var(--soft-white); text-decoration: none; border-radius: 5px; font-weight: 500; font-size: 1.1rem; transition: var(--transition-fast); border: 2px solid var(--antique-gold); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .cta-button:hover { background-color: var(--antique-gold-darker); border-color: var(--antique-gold-darker); transform: translateY(-3px); box-shadow: 0 6px 20px rgba(176, 141, 87, 0.3); }
+
+        /* --- Part 3: 英雄区域 (Header) --- */
+        .hero { min-height: 100vh; display: flex; align-items: center; text-align: center; position: relative; overflow: hidden; }
+        .hero-background-ink { 
+            position: absolute; top: 50%; left: 50%; width: 150%; height: 150%;
+            transform: translate(-50%, -50%); opacity: 0.05; 
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><defs><filter id="w" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="20" /></filter></defs><circle fill="%23F8F8F0" cx="400" cy="400" r="200" filter="url(%23w)" /></svg>'); 
+            background-size: cover; 
+            /* --- 进化 1: 移除静态旋转动画，交由JS控制 --- */
+            transition: transform 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+        .hero-content { position: relative; z-index: 2; animation: fade-in-up 1s ease-out 1.8s backwards; }
+        .hero h1 { font-family: var(--font-serif); font-size: 5rem; font-weight: 700; margin-bottom: 1rem; }
+        .hero .tagline { font-size: 1.5rem; font-weight: 300; margin-bottom: 1.5rem; color: rgba(239, 239, 239, 0.8); }
+        .hero .description { max-width: 600px; margin: 0 auto 3rem; font-size: 1.1rem; }
+
+        /* --- Part 4: 特性介绍区域 --- */
+        .feature-grid { display: grid; grid-template-columns: 1fr; gap: 8rem; }
+        .feature-item { display: flex; align-items: center; gap: 4rem; transition: transform var(--transition-fast); }
+        /* --- 进化 2: 特性卡片悬停光晕 --- */
+        .feature-item:hover { transform: translateY(-10px); }
+        .feature-item .feature-visual {
+            transition: box-shadow var(--transition-fast);
+        }
+        .feature-item:hover .feature-visual {
+            box-shadow: 0 0 40px 5px rgba(176, 141, 87, 0.2);
+        }
+        .feature-item:nth-child(even) { flex-direction: row-reverse; }
+        .feature-text { flex: 1; }
+        .feature-text h3 { font-size: 2rem; color: var(--antique-gold); margin-bottom: 1rem; }
+        .feature-text p { font-size: 1.1rem; color: rgba(239, 239, 239, 0.85); }
+        .feature-visual { flex: 1; background-color: var(--xuan-paper-white); color: var(--charcoal-grey); padding: 2rem; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: center; min-height: 180px; }
+        .feature-visual.code-style { font-family: var(--font-mono); font-size: 1.1rem; line-height: 2; background-color: #222; color: var(--soft-white); align-items: flex-start; }
+        .feature-visual .flow-text { font-family: var(--font-serif); font-size: 1.5rem; text-align: center; color: var(--charcoal-grey); }
+        .feature-visual .lang-split { display: flex; gap: 2rem; align-items: center; }
+        .feature-visual .lang-split span { font-size: 1.2rem; }
+        .feature-visual .lang-split .separator { font-size: 2rem; color: var(--antique-gold); }
+
+        /* --- Part 5: 使用流程 --- */
+        .how-to-use { background-color: var(--xuan-paper-white); color: var(--charcoal-grey); }
+        .timeline { position: relative; max-width: 800px; margin: 0 auto; list-style: none; }
+        .timeline::after { content: ''; position: absolute; width: 3px; background-color: var(--antique-gold); top: 0; bottom: 0; left: 50%; margin-left: -1.5px; transform: scaleY(0); transform-origin: top; transition: transform 1s ease-out; }
+        .visible .timeline::after { transform: scaleY(1); }
+        .timeline-item { padding: 10px 40px; position: relative; width: 50%; }
+        .timeline-item:nth-child(odd) { left: 0; }
+        .timeline-item:nth-child(even) { left: 50%; }
+        .timeline-item::after { content: ''; position: absolute; width: 25px; height: 25px; right: -12.5px; background-color: var(--ink-black); border: 4px solid var(--antique-gold); top: 25px; border-radius: 50%; z-index: 1; }
+        .timeline-item:nth-child(even)::after { left: -12.5px; }
+        .timeline-content { padding: 20px 30px; background-color: white; position: relative; border-radius: 6px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border-left: 5px solid var(--antique-gold); }
+        .timeline-content h3 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+
+        /* --- Part 6: 更新日志 --- */
+        .changelog-container { max-width: 800px; margin: 0 auto; }
+        .changelog-item { background-color: rgba(255, 255, 255, 0.05); margin-bottom: 1rem; border-radius: 5px; border-left: 3px solid var(--antique-gold); }
+        .changelog-item summary { padding: 1rem 1.5rem; font-size: 1.2rem; font-family: var(--font-serif); cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; transition: background-color var(--transition-fast); }
+        .changelog-item summary:hover { background-color: rgba(255, 255, 255, 0.1); }
+        .changelog-item summary::after { content: '+'; font-size: 2rem; font-weight: 300; transition: transform var(--transition-fast); }
+        .changelog-item[open] summary::after { transform: rotate(45deg); }
+        .changelog-content { padding: 0 1.5rem 1.5rem; white-space: pre-wrap; font-family: var(--font-sans); font-size: 1rem; line-height: 1.7; color: rgba(239, 239, 239, 0.8); }
+
+        /* --- Part 7: 下载与源码 --- */
+        .download-section { text-align: center; }
+        .download-section p { max-width: 700px; margin: 0 auto 2rem; color: rgba(239, 239, 239, 0.85); }
+        .code-block-wrapper { max-width: 800px; margin: 3rem auto 0; text-align: left; background-color: #111; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); position: relative; }
+        .code-block-header { padding: 0.8rem 1.5rem; background-color: #222; border-top-left-radius: 8px; border-top-right-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .code-block-header span { font-family: var(--font-mono); color: var(--antique-gold); }
+        .copy-button { background-color: var(--antique-gold); color: var(--soft-white); border: none; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; font-family: var(--font-sans); transition: var(--transition-fast); }
+        .copy-button:hover { background-color: var(--antique-gold-darker); }
+        .code-block { padding: 1.5rem; max-height: 500px; overflow: auto; }
+        .code-block pre, .code-block code { font-family: var(--font-mono); font-size: 0.95rem; line-height: 1.6; font-variant-ligatures: common-ligatures; color: var(--soft-white); }
+
+        /* --- Part 8: 页脚 --- */
+        footer { padding: 4rem 2rem; text-align: center; background-color: #111; border-top: 1px solid #222; }
+        .footer-content { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
+        .seal { width: 60px; height: 60px; cursor: pointer; transition: var(--transition-fast); }
+        /* --- 进化 3: 页脚印章动画升格 --- */
+        .seal:hover { transform: scale(1.1) rotate(-5deg); }
+        .seal:active { transform: scale(1.05) rotate(-5deg); }
+        .seal .seal-path { fill: var(--vermilion-red); transition: var(--transition-fast); }
+        .seal:hover .seal-path { fill: var(--vermilion-red-darker); }
+        .footer-text { color: rgba(239, 239, 239, 0.6); }
+        .footer-text a { color: var(--antique-gold); text-decoration: none; transition: color var(--transition-fast); }
+        .footer-text a:hover { color: var(--soft-white); }
+
+        /* --- Part 9: 动画与响应式 --- */
+        .animate-on-scroll { opacity: 0; transform: translateY(50px); transition: opacity 0.8s ease-out, transform 0.8s ease-out; }
+        .animate-on-scroll.visible { opacity: 1; transform: translateY(0); }
+        @keyframes fade-in-up { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 992px) { .feature-item, .feature-item:nth-child(even) { flex-direction: column; gap: 3rem; } }
+        @media (max-width: 768px) { html { font-size: 14px; } .hero h1 { font-size: 3.5rem; } .hero .tagline { font-size: 1.2rem; } h2 { font-size: 2.2rem; } .timeline::after { display: none; } .timeline-item, .timeline-item:nth-child(even) { width: 100%; padding-left: 20px; padding-right: 20px; left: 0; margin-bottom: 2rem; } .timeline-item::after { display: none; } .timeline-content { padding: 20px; } }
+    </style>
+</head>
+<body>
+
+    <!-- 内容与之前版本完全相同，此处省略以保持简洁 -->
+    <!-- The HTML body content is identical to the previous version. -->
+    <!-- It is omitted here for brevity. -->
+    <div class="preloader"><div class="ink-drop"></div></div>
+    <header class="hero">
+        <div class="hero-background-ink"></div>
+        <div class="container">
+            <div class="hero-content">
+                <h1>墨笺</h1>
+                <p class="tagline">化任意编辑器，为代码灵感之速记。</p>
+                <p class="description">告别散乱的代码片段。轻点一下，用你最爱的编辑器，瞬间开启一个纯净的书写空间。你的思想，将以《墨笺之卷》的形式，被优雅收藏。</p>
+                <a href="https://drive.google.com/file/d/1B2SIFwWffthvEHqenHVUgJuoa2vzIedJ/view?usp=sharing" class="cta-button" target="_blank" rel="noopener noreferrer">立即下载 墨笺.exe</a>
+            </div>
+        </div>
+    </header>
+    <main>
+        <section class="section features">
+            <div class="container">
+                <h2 class="animate-on-scroll">何为墨笺？</h2>
+                <div class="feature-grid">
+                    <div class="feature-item animate-on-scroll"><div class="feature-text"><h3>自由择器，随心而动</h3><p>墨笺不再束缚于记事本。无论是 VS Code 的强大，还是 Sublime 的轻盈，选择你最顺手的兵器，墨笺为你铺开稿纸。</p></div><div class="feature-visual"><p class="flow-text">[墨笺] → [选择编辑器] → [启动]</p></div></div>
+                    <div class="feature-item animate-on-scroll"><div class="feature-text"><h3>一步到位，流转自如</h3><p>灵感记录的终点，是它的即时可用。开启“完成时定位”，文件保存的瞬间，文件夹自动弹出，让你无缝拖拽至 AI 对话、代码仓库或任何地方。</p></div><div class="feature-visual"><p class="flow-text">[保存] → [定位文件] → [即刻使用]</p></div></div>
+                    <div class="feature-item animate-on-scroll"><div class="feature-text"><h3>风雅命名，东方神韵</h3><p>好的工具，其细节也应如诗。我们摒弃了冰冷的 `settings.json`，代之以《墨笺之引》与《墨笺之卷》，让每一次配置都充满仪式感。</p></div><div class="feature-visual code-style"><pre><code>📁 墨笺文件集/
+├─ 📄 墨笺1.txt
+└─ 📜 墨笺之卷.json
+
+🚀 墨笺程序/
+├─ ✨ 墨笺.exe
+└─ 🧭 墨笺之引.mjp</code></pre></div></div>
+                    <div class="feature-item animate-on-scroll"><div class="feature-text"><h3>双语内核，无界沟通</h3><p>墨笺能解你意。它会自动检测操作系统语言，为你呈现最亲切的中文或英文界面，让专注不因语言而分心。</p></div><div class="feature-visual"><div class="lang-split"><span>欢迎使用墨笺</span><span class="separator">|</span><span>Welcome to Mojian</span></div></div></div>
+                </div>
+            </div>
+        </section>
+        <section class="section how-to-use"><div class="container"><h2 class="animate-on-scroll">三步入魂</h2><ol class="timeline animate-on-scroll"><li class="timeline-item"><div class="timeline-content"><h3>初见 · 定制</h3><p>运行 <code>墨笺.exe</code>，向导将引导您完成三步设置：指定“墨笺集”的珍藏位置、选择您的专属编辑器、决定是否开启“完成时定位”。</p></div></li><li class="timeline-item"><div class="timeline-content"><h3>挥毫 · 创作</h3><p>设置完毕，您的编辑器应声而起。此刻，世界只剩下你和代码。完成创作，保存并关闭。</p></div></li><li class="timeline-item"><div class="timeline-content"><h3>归档 · 新生</h3><p>您的作品已化为 <code>墨笺n.txt</code>，静候于“墨笺集”中。若开启了定位，它已在您眼前，待您启用。</p></div></li></ol></div></section>
+        <section class="section changelog"><div class="container"><h2 class="animate-on-scroll">迭代之迹</h2><div class="changelog-container animate-on-scroll"><details class="changelog-item" open><summary>v1.2.1 - 健壮性修复与命名体系优化</summary><div class="changelog-content">    - 修复 - 关键Bug修复：解决了在Windows用户名或路径包含特殊字符（如单引号“'”）时，“完成后自动定位文件”功能报错且无法选中文件的问题。现在该功能在所有路径下都能稳定运行。
+    - 优化 - 命名体系：为配置文件赋予了更具东方美学的雅致名称（墨笺之引、墨笺之卷），提升了项目的整体感与设计细节。</div></details><details class="changelog-item"><summary>v1.2.0 - 国际化与核心体验升级</summary><div class="changelog-content">    - 新增 - 国际化支持 (i18n)：程序现可自动检测用户操作系统语言，并切换为中文或英文界面。
+    - 新增 - 完成后自动定位文件：设置向导中新增选项，允许用户开启“保存后自动打开文件所在位置”功能，提升工作流效率。
+    - 优化 - 配置文件管理：配置文件现在将保存在您指定的“墨笺”文件夹中，与主程序分离。
+    - 优化 - 启动流程：启动确认对话框的默认焦点已设为“否”，方便高频用户直接按回车键继续。
+    - 优化 - 界面提示：全面优化了程序内的提示文本，使其在时序和表达上更加精准、亲切。</div></details></div></div></section>
+        <section class="section download-section"><div class="container"><h2 class="animate-on-scroll">探其究竟</h2><p class="animate-on-scroll">墨笺是完全免费且开源的。对于开发者和热衷于探索事物本源的朋友，我们邀请您访问其 GitHub 仓库，审阅每一行代码，参与未来的共创。</p><div class="animate-on-scroll"><a href="https://github.com/630StarFortune/Mojian" class="cta-button" target="_blank" rel="noopener noreferrer">访问 GitHub 仓库</a></div><div class="code-block-wrapper animate-on-scroll"><div class="code-block-header"><span>墨笺之魂 (Python 核心逻辑)</span><button class="copy-button">复制</button></div><div class="code-block"><pre><code>def main():
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        settings = load_settings(root)
+        # ... (版本检查与欢迎信息)
+        if should_reconfigure:
+            save_folder_path, editor_path, auto_open = run_configuration_wizard(root)
+            if not (save_folder_path and editor_path): return
+            settings = {
+                "save_folder_path": save_folder_path, 
+                "editor_path": editor_path,
+                "auto_open_location": auto_open,
+                "last_version_run": L["version"]
+            }
+            save_settings(settings, save_folder_path)
+        
+        # ... (配置加载)
+        final_mojian_file_path = find_next_mojian_filename(save_folder_path)
+        if not final_mojian_file_path: return
+
+        # 创建空文件并记录修改时间
+        with open(final_mojian_file_path, 'a', encoding='utf-8') as f: pass
+        mtime_before = os.path.getmtime(final_mojian_file_path)
+
+        # 启动用户选择的编辑器
+        process = subprocess.Popen([editor_path, final_mojian_file_path])
+        process.wait()
+
+        # ... (文件修改与内容检查)
+        if file_was_modified and not content_is_empty:
+            if auto_open_location:
+                open_file_location(final_mojian_file_path)
+        else:
+            # ... (未修改则删除空文件)
+    # ... (异常处理)
+    finally:
+        root.destroy()</code></pre></div></div></div></section>
+    </main>
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <a href="https://github.com/630StarFortune" target="_blank" rel="noopener noreferrer" title="星缘 GitHub"><svg class="seal" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path class="seal-path" d="M 10 10 H 90 V 90 H 10 Z M 15 15 V 85 H 85 V 15 Z" /><text x="50" y="62" font-size="40" font-family="var(--font-serif)" fill="#C0392B" text-anchor="middle" class="seal-path">缘</text></svg></a>
+                <p class="footer-text">© <span id="currentYear"></span> <a href="https://github.com/630StarFortune" target="_blank" rel="noopener noreferrer">星缘</a>. All Rights Reserved.<br>灵感源于高效，设计归于简洁。</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Part 1: Preloader ---
+            const preloader = document.querySelector('.preloader');
+            window.addEventListener('load', () => { preloader.classList.add('loaded'); });
+
+            // --- Part 2: Scroll Animations ---
+            const animatedElements = document.querySelectorAll('.animate-on-scroll');
+            const observer = new IntersectionObserver((entries) => { entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target); } }); }, { threshold: 0.1 });
+            animatedElements.forEach(el => observer.observe(el));
+
+            // --- Part 3: Code Copy Button ---
+            const copyButton = document.querySelector('.copy-button');
+            if (copyButton) {
+                copyButton.addEventListener('click', () => {
+                    const codeBlock = document.querySelector('.code-block pre code');
+                    navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+                        const originalText = copyButton.innerText;
+                        copyButton.innerText = '已复制!';
+                        copyButton.style.backgroundColor = '#5a9a5a';
+                        setTimeout(() => { copyButton.innerText = originalText; copyButton.style.backgroundColor = 'var(--antique-gold)'; }, 2000);
+                    }).catch(err => { console.error('Failed to copy text: ', err); copyButton.innerText = '复制失败'; });
+                });
+            }
+
+            // --- 进化 1: 交互式水墨背景 JS ---
+            const hero = document.querySelector('.hero');
+            const inkBackground = document.querySelector('.hero-background-ink');
+            if (hero && inkBackground) {
+                hero.addEventListener('mousemove', (e) => {
+                    const { clientX, clientY } = e;
+                    const { offsetWidth, offsetHeight } = hero;
+                    const xPos = (clientX / offsetWidth - 0.5) * 30; // 移动幅度
+                    const yPos = (clientY / offsetHeight - 0.5) * 30;
+                    inkBackground.style.transform = `translate(calc(-50% + ${xPos}px), calc(-50% + ${yPos}px))`;
+                });
+            }
+
+            // --- BUG 修复 & 页脚年份 ---
+            // 修正了 `new new Date()` 的错误
+            document.getElementById('currentYear').textContent = new Date().getFullYear();
+        });
+    </script>
+
+</body>
+</html>
